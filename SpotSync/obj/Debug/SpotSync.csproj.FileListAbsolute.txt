@@ -1,0 +1,10 @@
+D:\Vaishnavi\Spotsync\SpotSync\SpotSync\bin\Debug\SpotSync.dll.config
+D:\Vaishnavi\Spotsync\SpotSync\SpotSync\bin\Debug\SpotSync.dll
+D:\Vaishnavi\Spotsync\SpotSync\SpotSync\bin\Debug\SpotSync.pdb
+D:\Vaishnavi\Spotsync\SpotSync\SpotSync\bin\Debug\EPPlus.dll
+D:\Vaishnavi\Spotsync\SpotSync\SpotSync\bin\Debug\LinqForEEPlus.dll
+D:\Vaishnavi\Spotsync\SpotSync\SpotSync\bin\Debug\EPPlus.xml
+D:\Vaishnavi\Spotsync\SpotSync\SpotSync\obj\Debug\SpotSync.csproj.CoreCompileInputs.cache
+D:\Vaishnavi\Spotsync\SpotSync\SpotSync\obj\Debug\SpotSync.csproj.CopyComplete
+D:\Vaishnavi\Spotsync\SpotSync\SpotSync\obj\Debug\SpotSync.dll
+D:\Vaishnavi\Spotsync\SpotSync\SpotSync\obj\Debug\SpotSync.pdb
