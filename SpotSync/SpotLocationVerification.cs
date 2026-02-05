@@ -248,12 +248,31 @@ public class SpotLocationVerification
         }
     }
 
+
+    class Spot
+    {
+        public string Id;
+        public double X;
+        public double Y;
+        public double Z;
+    }
+
+    //For 3D Distance 
+    private double Distance(Spot a, Spot b)
+    {
+        return Math.Sqrt(
+            Math.Pow(a.X - b.X, 2) +
+            Math.Pow(a.Y - b.Y, 2) +
+            Math.Pow(a.Z - b.Z, 2));
+    }
+
     //------------------------------------------------------------------------------
     //Callback Name: apply_cb
     //------------------------------------------------------------------------------
     public int apply_cb()
     {
         int errorCode = 0;
+        double zeroTol = 1e-6; // for floating point comparison
 
         try
         {
@@ -284,9 +303,12 @@ public class SpotLocationVerification
             Dictionary<string, Spot> oldSpots = ReadExcel(initialPath);
             Dictionary<string, Spot> newSpots = ReadExcel(newPath);
 
-            int shiftedCount = 0;
-            int newCount = 0;
-            int deletedCount = 0;
+            //int shiftedSpotCount = 0;
+            //int newSpotCount = 0;
+            int deletedSpotCount = 0;
+            int noChangeSpotCount = 0;
+            int shiftedWithinTolCount = 0;
+            int shiftedBeyondTolCount = 0;
 
             // -------- Compare New vs Old --------
             foreach (var pair in newSpots)
@@ -301,35 +323,71 @@ public class SpotLocationVerification
                     double dz = Math.Abs(oldS.Z - newS.Z);
                     double dist = Distance(oldS, newS);
 
-                    bool isShifted = (comparisonMethod == "Axis-wise")
-                        ? (dx <= tolerance && dy <= tolerance && dz <= tolerance)
-                        : (dist <= tolerance);
+                    // 1️⃣ NO CHANGE check
+                    bool isNoChange =
+                        dx <= zeroTol &&
+                        dy <= zeroTol &&
+                        dz <= zeroTol;
 
-                    if (isShifted)
-                        shiftedCount++;
+                    if (isNoChange)
+                    {
+                        noChangeSpotCount++;
+                    }
                     else
-                        newCount++;   // exceeds tolerance → NEW spot
+                    {
+                        //  SHIFTED checks
+                        bool isWithinTolerance = (comparisonMethod == "Axis-wise")
+                            ? (dx <= tolerance && dy <= tolerance && dz <= tolerance)
+                            : (dist <= tolerance);
+
+                        if (isWithinTolerance)
+                            shiftedWithinTolCount++;
+                        else
+                            shiftedBeyondTolCount++;
+                    }
+
                 }
-                else
-                {
-                    newCount++;       // spot not found in old → NEW
-                }
+                //else
+                //{
+                //    newSpotCount++;       // spot not found in old → NEW
+                //}
+
+
             }
+
+            string outputPath = Path.Combine(
+                Path.GetDirectoryName(initialPath),
+                "SpotSync_output.xlsx");
+
+            CreateOutputExcel(
+                outputPath,
+                oldSpots,
+                newSpots,
+                tolerance,
+                comparisonMethod);
+
+            theUI.NXMessageBox.Show(
+                "Spot Location Verification",
+                NXMessageBox.DialogType.Information,
+                "Comparison completed.\nOutput file created:\n" + outputPath);
+
 
             // -------- Deleted Spots --------
             foreach (var pair in oldSpots)
             {
                 if (!newSpots.ContainsKey(pair.Key))
-                    deletedCount++;
+                    deletedSpotCount++;
             }
 
-            // -------- Summary --------
-            theUI.NXMessageBox.Show(
-                "Spot Location Verification Result",
-                NXMessageBox.DialogType.Information,
-                $"Shifted Spots : {shiftedCount}\n" +
-                $"New Spots     : {newCount}\n" +
-                $"Deleted Spots : {deletedCount}");
+            //// -------- Summary --------
+            //theUI.NXMessageBox.Show(
+            //    "Spot Location Verification Result",
+            //    NXMessageBox.DialogType.Information,
+            //    $"Shifted Spots     : {shiftedWithinTolCount}\n" +
+            //    $"New Spot          : {shiftedBeyondTolCount}\n" +
+            //    $"No Change Spots   : {noChangeSpotCount}\n" +
+            //    $"Deleted Spots     : {deletedSpotCount}");
+
 
         }
         catch (Exception ex)
@@ -367,7 +425,11 @@ public class SpotLocationVerification
 
                 // stop if coordinates missing
                 if (xObj == null || yObj == null || zObj == null)
-                    break;
+                {
+                    row++;
+                    continue; // skip only this row
+                }
+
 
                 if (!double.TryParse(xObj.ToString(), out double x) ||
                     !double.TryParse(yObj.ToString(), out double y) ||
@@ -415,16 +477,6 @@ public class SpotLocationVerification
     //    }
     //    return spots;
     //}
-
-
-    private double Distance(Spot a, Spot b)
-    {
-        return Math.Sqrt(
-            Math.Pow(a.X - b.X, 2) +
-            Math.Pow(a.Y - b.Y, 2) +
-            Math.Pow(a.Z - b.Z, 2));
-    }
-
 
     //------------------------------------------------------------------------------
     //Callback Name: update_cb
@@ -483,12 +535,113 @@ public class SpotLocationVerification
         return errorCode;
     }
 
-    class Spot
+    private void CreateOutputExcel(
+    string outputPath,
+    Dictionary<string, Spot> oldSpots,
+    Dictionary<string, Spot> newSpots,
+    double tolerance,
+    string comparisonMethod)
     {
-        public string Id;
-        public double X;
-        public double Y;
-        public double Z;
+        using (var package = new ExcelPackage())
+        {
+            var ws = package.Workbook.Worksheets.Add("Spot Comparison");
+
+            // ===== HEADER =====
+            ws.Cells["B2:D2"].Merge = true;
+            ws.Cells["B2"].Value = "old";
+
+            ws.Cells["F2:H2"].Merge = true;
+            ws.Cells["F2"].Value = "new";
+
+            ws.Cells["B3"].Value = "Spot Id";
+            ws.Cells["C3"].Value = "X";
+            ws.Cells["D3"].Value = "Y";
+            ws.Cells["E3"].Value = "Z";
+
+            ws.Cells["F3"].Value = "X1";
+            ws.Cells["G3"].Value = "Y1";
+            ws.Cells["H3"].Value = "Z1";
+
+            ws.Cells["I3"].Value = "Remark";
+
+            int row = 4;
+            double zeroTol = 1e-6;
+
+            // ===== PROCESS ALL UNIQUE SPOT IDS =====
+            var allSpotIds = oldSpots.Keys
+                .Union(newSpots.Keys)
+                .OrderBy(id => int.Parse(id));
+
+            foreach (var spotId in allSpotIds)
+            {
+                oldSpots.TryGetValue(spotId, out Spot oldS);
+                newSpots.TryGetValue(spotId, out Spot newS);
+
+                ws.Cells[row, 2].Value = spotId;
+
+                // OLD DATA
+                if (oldS != null)
+                {
+                    ws.Cells[row, 3].Value = oldS.X;
+                    ws.Cells[row, 4].Value = oldS.Y;
+                    ws.Cells[row, 5].Value = oldS.Z;
+                }
+
+                // NEW DATA
+                if (newS != null)
+                {
+                    ws.Cells[row, 6].Value = newS.X;
+                    ws.Cells[row, 7].Value = newS.Y;
+                    ws.Cells[row, 8].Value = newS.Z;
+                }
+
+                // ===== REMARK LOGIC =====
+                string remark;
+
+                if (oldS != null && newS != null)
+                {
+                    double dx = Math.Abs(oldS.X - newS.X);
+                    double dy = Math.Abs(oldS.Y - newS.Y);
+                    double dz = Math.Abs(oldS.Z - newS.Z);
+                    double dist = Distance(oldS, newS);
+
+                    bool noChange =
+                        dx <= zeroTol &&
+                        dy <= zeroTol &&
+                        dz <= zeroTol;
+
+                    bool withinTol = (comparisonMethod == "Axis-wise")
+                        ? (dx <= tolerance && dy <= tolerance && dz <= tolerance)
+                        : (dist <= tolerance);
+
+                    if (noChange)
+                        remark = "No Change";
+                    else if (withinTol)
+                        remark = "Shifted";
+                    else
+                        remark = "New";
+                }
+                else if (oldS == null && newS != null)
+                {
+                    remark = "New";
+                }
+                else
+                {
+                    remark = "Deleted";
+                }
+
+                ws.Cells[row, 9].Value = remark;
+                row++;
+            }
+
+            // ===== FORMATTING =====
+            ws.Cells[ws.Dimension.Address].AutoFitColumns();
+            ws.Cells["B2:I3"].Style.Font.Bold = true;
+            ws.Cells["B2:I3"].Style.HorizontalAlignment =
+                OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
+
+            package.SaveAs(new FileInfo(outputPath));
+        }
     }
 
 
