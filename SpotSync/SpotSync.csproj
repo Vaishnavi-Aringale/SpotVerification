@@ -63,6 +63,9 @@
       <Private>False</Private>
     </Reference>
     <Reference Include="PresentationCore" />
+    <Reference Include="ProgressBar">
+      <HintPath>..\..\..\Solution_AutoHoleInspector\ProgressBar\ProgressBar\bin\Debug\ProgressBar.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.configuration" />
     <Reference Include="System.Core" />

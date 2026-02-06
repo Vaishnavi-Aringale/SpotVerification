@@ -41,6 +41,8 @@ using System.IO;
 using System.Collections.Generic;
 using OfficeOpenXml;
 using System.Linq;
+using ProgressBar;
+using System.Diagnostics;
 
 
 //------------------------------------------------------------------------------
@@ -59,8 +61,9 @@ public class SpotLocationVerification
     private NXOpen.BlockStyler.Group group1;// Block type: Group
     private NXOpen.BlockStyler.DoubleBlock double0;// Block type: Double
     private NXOpen.BlockStyler.Enumeration enum0;// Block type: Enumeration
+    private NXOpen.BlockStyler.FolderSelection reportLocation;// Block type: NativeFolderBrowser
     private NXOpen.BlockStyler.Button reportButton;// Block type: Button
-    
+    private bool reportButtonPressed = false;
     //------------------------------------------------------------------------------
     //Constructor for NX Styler class
     //------------------------------------------------------------------------------
@@ -72,8 +75,8 @@ public class SpotLocationVerification
             theUI = UI.GetUI();
             theDlxFileName = "SpotLocationVerification.dlx";
             theDialog = theUI.CreateDialog(System.IO.Path.Combine(AppContext.BaseDirectory, theDlxFileName));
-            theDialog.AddApplyHandler(new NXOpen.BlockStyler.BlockDialog.Apply(apply_cb));
-            theDialog.AddOkHandler(new NXOpen.BlockStyler.BlockDialog.Ok(ok_cb));
+            //theDialog.AddApplyHandler(new NXOpen.BlockStyler.BlockDialog.Apply(apply_cb));
+            //theDialog.AddOkHandler(new NXOpen.BlockStyler.BlockDialog.Ok(ok_cb));
             theDialog.AddUpdateHandler(new NXOpen.BlockStyler.BlockDialog.Update(update_cb));
             theDialog.AddInitializeHandler(new NXOpen.BlockStyler.BlockDialog.Initialize(initialize_cb));
             theDialog.AddDialogShownHandler(new NXOpen.BlockStyler.BlockDialog.DialogShown(dialogShown_cb));
@@ -221,6 +224,7 @@ public class SpotLocationVerification
             group1 = (NXOpen.BlockStyler.Group)theDialog.TopBlock.FindBlock("group1");
             double0 = (NXOpen.BlockStyler.DoubleBlock)theDialog.TopBlock.FindBlock("double0");
             enum0 = (NXOpen.BlockStyler.Enumeration)theDialog.TopBlock.FindBlock("enum0");
+            reportLocation = (NXOpen.BlockStyler.FolderSelection)theDialog.TopBlock.FindBlock("reportLocation");
             reportButton = (NXOpen.BlockStyler.Button)theDialog.TopBlock.FindBlock("reportButton");
         }
         catch (Exception ex)
@@ -303,6 +307,13 @@ public class SpotLocationVerification
             Dictionary<string, Spot> oldSpots = ReadExcel(initialPath);
             Dictionary<string, Spot> newSpots = ReadExcel(newPath);
 
+            int totalSteps = newSpots.Count + oldSpots.Count+1;
+
+            ProgressController.StartProgressBar(
+                stepSize: totalSteps,
+                progressLabel: "Comparing spot locations..."
+            );
+
             //int shiftedSpotCount = 0;
             //int newSpotCount = 0;
             int deletedSpotCount = 0;
@@ -323,7 +334,7 @@ public class SpotLocationVerification
                     double dz = Math.Abs(oldS.Z - newS.Z);
                     double dist = Distance(oldS, newS);
 
-                    // 1️⃣ NO CHANGE check
+                    // 1️ NO CHANGE check
                     bool isNoChange =
                         dx <= zeroTol &&
                         dy <= zeroTol &&
@@ -345,20 +356,46 @@ public class SpotLocationVerification
                         else
                             shiftedBeyondTolCount++;
                     }
+                    
+                        
+                    
 
                 }
                 //else
                 //{
                 //    newSpotCount++;       // spot not found in old → NEW
                 //}
+                
+                ProgressController.IncrementProgressBar();
 
+                
+                System.Threading.Thread.Sleep(150);
 
             }
+         
+
+            //string outputDirectory = Path.GetDirectoryName(initialPath);
+            string outputDirectory = reportLocation.Path;
+
+            if (string.IsNullOrWhiteSpace(outputDirectory) ||
+                !Directory.Exists(outputDirectory))
+            {
+                theUI.NXMessageBox.Show(
+                    "Spot Location Verification",
+                    NXMessageBox.DialogType.Error,
+                    "Please select a valid report location.");
+                return 1;
+            }
+
+            string timeStamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
 
             string outputPath = Path.Combine(
-                Path.GetDirectoryName(initialPath),
-                "SpotSync_output.xlsx");
+                outputDirectory,
+                $"SpotSync_output_{timeStamp}.xlsx");
 
+
+            
+           
             CreateOutputExcel(
                 outputPath,
                 oldSpots,
@@ -366,10 +403,23 @@ public class SpotLocationVerification
                 tolerance,
                 comparisonMethod);
 
-            theUI.NXMessageBox.Show(
-                "Spot Location Verification",
-                NXMessageBox.DialogType.Information,
-                "Comparison completed.\nOutput file created:\n" + outputPath);
+
+            
+            ProgressController.IncrementProgressBar();
+            System.Threading.Thread.Sleep(50);
+
+            //string outputDirectory = reportLocation.Path;
+
+            if (string.IsNullOrWhiteSpace(outputDirectory) ||
+                !Directory.Exists(outputDirectory))
+            {
+                theUI.NXMessageBox.Show(
+                    "Spot Location Verification",
+                    NXMessageBox.DialogType.Error,
+                    "Please select a valid report location.");
+                return 1;
+            }
+
 
 
             // -------- Deleted Spots --------
@@ -377,16 +427,31 @@ public class SpotLocationVerification
             {
                 if (!newSpots.ContainsKey(pair.Key))
                     deletedSpotCount++;
+                ProgressController.IncrementProgressBar();
+                System.Threading.Thread.Sleep(1);
+            }
+            ProgressController.StopProgressBar();
+            theUI.NXMessageBox.Show(
+                "Spot Location Verification",
+                NXMessageBox.DialogType.Information,
+                "Comparison completed");
+
+            try
+            {
+                Process.Start(new ProcessStartInfo()
+                {
+                    FileName = outputPath,
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                theUI.NXMessageBox.Show(
+                    "Error",
+                    NXMessageBox.DialogType.Error,
+                    "Unable to open Excel file.\n" + ex.Message);
             }
 
-            //// -------- Summary --------
-            //theUI.NXMessageBox.Show(
-            //    "Spot Location Verification Result",
-            //    NXMessageBox.DialogType.Information,
-            //    $"Shifted Spots     : {shiftedWithinTolCount}\n" +
-            //    $"New Spot          : {shiftedBeyondTolCount}\n" +
-            //    $"No Change Spots   : {noChangeSpotCount}\n" +
-            //    $"Deleted Spots     : {deletedSpotCount}");
 
 
         }
@@ -398,7 +463,7 @@ public class SpotLocationVerification
                 NXMessageBox.DialogType.Error,
                 ex.ToString());
         }
-
+        
         return errorCode;
     }
     private Dictionary<string, Spot> ReadExcel(string path)
@@ -454,30 +519,7 @@ public class SpotLocationVerification
     }
 
 
-    //private Dictionary<string, Spot> ReadExcel(string path)
-    //{
-    //    Dictionary<string, Spot> spots = new Dictionary<string, Spot>();
-
-    //    using (ExcelPackage package = new ExcelPackage(new FileInfo(path)))
-    //    {
-    //        ExcelWorksheet ws = package.Workbook.Worksheets[0];
-    //        int row = 2;
-
-    //        while (!string.IsNullOrEmpty(ws.Cells[row, 1].Text))
-    //        {
-    //            Spot s = new Spot();
-    //            s.Id = ws.Cells[row, 1].Text;
-    //            s.X = Convert.ToDouble(ws.Cells[row, 2].Text);
-    //            s.Y = Convert.ToDouble(ws.Cells[row, 3].Text);
-    //            s.Z = Convert.ToDouble(ws.Cells[row, 4].Text);
-
-    //            spots[s.Id] = s;
-    //            row++;
-    //        }
-    //    }
-    //    return spots;
-    //}
-
+    
     //------------------------------------------------------------------------------
     //Callback Name: update_cb
     //------------------------------------------------------------------------------
@@ -500,6 +542,10 @@ public class SpotLocationVerification
             else if(block == enum0)
             {
             //---------Enter your code here-----------
+            }
+            else if (block == reportLocation)
+            {
+                //---------Enter your code here-----------
             }
             else if (block == reportButton)
             {
@@ -535,6 +581,8 @@ public class SpotLocationVerification
         return errorCode;
     }
 
+
+
     private void CreateOutputExcel(
     string outputPath,
     Dictionary<string, Spot> oldSpots,
@@ -544,30 +592,31 @@ public class SpotLocationVerification
     {
         using (var package = new ExcelPackage())
         {
-            var ws = package.Workbook.Worksheets.Add("Spot Comparison");
+            var ws = package.Workbook.Worksheets.Add("SpotSync Output");
 
-            // ===== HEADER =====
-            ws.Cells["B2:D2"].Merge = true;
-            ws.Cells["B2"].Value = "old";
+            // ================= HEADER =================
+            ws.Cells["C2:E2"].Merge = true;
+            ws.Cells["C2"].Value = "old";
 
-            ws.Cells["F2:H2"].Merge = true;
-            ws.Cells["F2"].Value = "new";
+            ws.Cells["G2:I2"].Merge = true;
+            ws.Cells["G2"].Value = "new";
 
             ws.Cells["B3"].Value = "Spot Id";
             ws.Cells["C3"].Value = "X";
             ws.Cells["D3"].Value = "Y";
             ws.Cells["E3"].Value = "Z";
 
-            ws.Cells["F3"].Value = "X1";
-            ws.Cells["G3"].Value = "Y1";
-            ws.Cells["H3"].Value = "Z1";
+            // Column F = GAP
 
-            ws.Cells["I3"].Value = "Remark";
+            ws.Cells["G3"].Value = "X1";
+            ws.Cells["H3"].Value = "Y1";
+            ws.Cells["I3"].Value = "Z1";
+
+            ws.Cells["J3"].Value = "Remark";
 
             int row = 4;
             double zeroTol = 1e-6;
 
-            // ===== PROCESS ALL UNIQUE SPOT IDS =====
             var allSpotIds = oldSpots.Keys
                 .Union(newSpots.Keys)
                 .OrderBy(id => int.Parse(id));
@@ -579,7 +628,6 @@ public class SpotLocationVerification
 
                 ws.Cells[row, 2].Value = spotId;
 
-                // OLD DATA
                 if (oldS != null)
                 {
                     ws.Cells[row, 3].Value = oldS.X;
@@ -587,17 +635,14 @@ public class SpotLocationVerification
                     ws.Cells[row, 5].Value = oldS.Z;
                 }
 
-                // NEW DATA
                 if (newS != null)
                 {
-                    ws.Cells[row, 6].Value = newS.X;
-                    ws.Cells[row, 7].Value = newS.Y;
-                    ws.Cells[row, 8].Value = newS.Z;
+                    ws.Cells[row, 7].Value = newS.X;
+                    ws.Cells[row, 8].Value = newS.Y;
+                    ws.Cells[row, 9].Value = newS.Z;
                 }
 
-                // ===== REMARK LOGIC =====
                 string remark;
-
                 if (oldS != null && newS != null)
                 {
                     double dx = Math.Abs(oldS.X - newS.X);
@@ -605,44 +650,68 @@ public class SpotLocationVerification
                     double dz = Math.Abs(oldS.Z - newS.Z);
                     double dist = Distance(oldS, newS);
 
-                    bool noChange =
-                        dx <= zeroTol &&
-                        dy <= zeroTol &&
-                        dz <= zeroTol;
-
+                    bool noChange = dx <= zeroTol && dy <= zeroTol && dz <= zeroTol;
                     bool withinTol = (comparisonMethod == "Axis-wise")
                         ? (dx <= tolerance && dy <= tolerance && dz <= tolerance)
                         : (dist <= tolerance);
 
-                    if (noChange)
-                        remark = "No Change";
-                    else if (withinTol)
-                        remark = "Shifted";
-                    else
-                        remark = "New";
+                    remark = noChange ? "No Change" : withinTol ? "Shifted" : "New";
                 }
-                else if (oldS == null && newS != null)
-                {
+                else if (oldS == null)
                     remark = "New";
-                }
                 else
-                {
                     remark = "Deleted";
-                }
 
-                ws.Cells[row, 9].Value = remark;
+                ws.Cells[row, 10].Value = remark;
                 row++;
             }
 
-            // ===== FORMATTING =====
-            ws.Cells[ws.Dimension.Address].AutoFitColumns();
-            ws.Cells["B2:I3"].Style.Font.Bold = true;
-            ws.Cells["B2:I3"].Style.HorizontalAlignment =
+            // ================= FORMATTING =================
+            ws.Cells["B2:J3"].Style.Font.Bold = true;
+            ws.Cells["B2:J3"].Style.HorizontalAlignment =
                 OfficeOpenXml.Style.ExcelHorizontalAlignment.Center;
 
+            // 🔹 ONE CONTINUOUS TOP BORDER (KEY FIX)
+            ws.Cells[$"B2:I2"].Style.Border.Top.Style =
+                OfficeOpenXml.Style.ExcelBorderStyle.Thin;
+
+            // OLD block (without top border)
+            ws.Cells[$"B3:E{row - 1}"].Style.Border.Left.Style =
+            ws.Cells[$"B3:E{row - 1}"].Style.Border.Right.Style =
+            ws.Cells[$"B3:E{row - 1}"].Style.Border.Bottom.Style =
+                OfficeOpenXml.Style.ExcelBorderStyle.Thin;
+
+            // NEW block (without top border)
+            ws.Cells[$"G3:I{row - 1}"].Style.Border.Left.Style =
+            ws.Cells[$"G3:I{row - 1}"].Style.Border.Right.Style =
+            ws.Cells[$"G3:I{row - 1}"].Style.Border.Bottom.Style =
+                OfficeOpenXml.Style.ExcelBorderStyle.Thin;
+
+            // Remark column
+            ws.Cells[$"J2:J{row - 1}"].Style.Border.BorderAround(
+                OfficeOpenXml.Style.ExcelBorderStyle.Thin);
+
+            // Inner grid lines
+            ws.Cells[$"B3:E{row - 1},G3:I{row - 1}"]
+                .Style.Border.Top.Style =
+            ws.Cells[$"B3:E{row - 1},G3:I{row - 1}"]
+                .Style.Border.Bottom.Style =
+            ws.Cells[$"B3:E{row - 1},G3:I{row - 1}"]
+                .Style.Border.Left.Style =
+            ws.Cells[$"B3:E{row - 1},G3:I{row - 1}"]
+                .Style.Border.Right.Style =
+                    OfficeOpenXml.Style.ExcelBorderStyle.Thin;
+
+            // GAP column
+            ws.Column(6).Width = 4;
+
+            ws.Cells[ws.Dimension.Address].AutoFitColumns();
             package.SaveAs(new FileInfo(outputPath));
         }
     }
+
+
+
 
 
     //------------------------------------------------------------------------------
